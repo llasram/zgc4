@@ -4,5 +4,7 @@ version = "0.1.0"
 authors = ["Marshall Bockrath-Vandegrift <llasram@gmail.com>"]
 
 [dependencies]
+enum_primitive = "0.1"
+num-traits = "0.1"
 rand = "0.3"
-smallvec = "0.2"
+smallvec = "0.4"

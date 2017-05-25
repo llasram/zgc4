@@ -1,0 +1,8 @@
+[package]
+name = "zgc4"
+version = "0.1.0"
+authors = ["Marshall Bockrath-Vandegrift <llasram@gmail.com>"]
+
+[dependencies]
+rand = "0.3"
+smallvec = "0.2"

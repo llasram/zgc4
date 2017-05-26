@@ -3,6 +3,11 @@ extern crate itertools;
 extern crate num_traits;
 extern crate smallvec;
 
+use std::cmp;
+use std::iter;
+use std::ops::Range;
+use std::slice;
+
 use num_traits::FromPrimitive;
 use itertools::Itertools;
 
@@ -30,6 +35,45 @@ impl Entry {
             Entry::Player2 => "2",
             Entry::Block => "X",
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Side {
+    North,
+    East,
+    South,
+    West,
+}
+
+pub type SideMovesIter = iter::Map<iter::Zip<iter::Repeat<Side>, Range<usize>>,
+                                   fn((Side, usize)) -> Move>;
+
+impl Side {
+    pub fn side_moves((&side, dim): (&Side, usize)) -> SideMovesIter {
+        iter::repeat(side).zip(0..dim).map(Move::from_tuple)
+    }
+}
+
+static SIDES: [Side; 4] = [Side::North, Side::East, Side::South, Side::West];
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Move {
+    pub side: Side,
+    pos: u32,
+}
+
+impl Move {
+    pub fn new(side: Side, pos: usize) -> Move {
+        Move { side: side, pos: pos as u32 }
+    }
+
+    pub fn from_tuple((side, pos): (Side, usize)) -> Move {
+        Move { side: side, pos: pos as u32 }
+    }
+
+    pub fn pos(&self) -> usize {
+        self.pos as usize
     }
 }
 
@@ -98,7 +142,91 @@ impl Board {
             entries.map(|e| e.pretty()).join("")
         }).join("\n")
     }
+
+    pub fn move_position(&self, m: Move) -> (usize, usize) {
+        match m.side {
+            Side::North => (m.pos(), 0),
+            Side::East => (self.dim() - 1, m.pos()),
+            Side::South => (m.pos(), self.dim() - 1),
+            Side::West => (0, m.pos()),
+        }
+    }
+
+    pub fn is_legal_move(&self, m: Move) -> bool {
+        if m.pos() >= self.dim() { return false }
+        let (x, y) = self.move_position(m);
+        let v = unsafe { self.get_unchecked(x, y) };
+        v == 0
+    }
+
+    pub fn possible_moves(&self) -> PossibleMovesIter {
+        SIDES.iter().zip(iter::repeat(self.dim())).flat_map(Side::side_moves)
+    }
+
+    pub fn count_legal_moves(&self) -> usize {
+        self.possible_moves().filter(|&m| self.is_legal_move(m)).count()
+    }
+
+    pub fn nth_legal_move(&self, n: usize) -> Option<Move> {
+        self.possible_moves().filter(|&m| self.is_legal_move(m)).nth(n)
+    }
+
+    pub fn move_pos_iter(&self, m: Move) -> MovePosIter {
+        let (x, y) = self.move_position(m);
+        MovePosIter { dim: self.dim(), side: m.side, x: x, y: y }
+    }
+
+    pub fn move_pos(&self, m: Move) -> (usize, usize) {
+        debug_assert!(self.is_legal_move(m));
+        let mut iter = self.move_pos_iter(m);
+        let mut pos = iter.next().unwrap();
+        for pos1 in iter {
+            let (x, y) = pos1;
+            let is_empty = unsafe { self.get_unchecked(x, y) == 0 };
+            if !is_empty { break; }
+            pos = pos1;
+        }
+        pos
+    }
+
+    pub fn is_winning_pos(&self, p: Entry, x: usize, y: usize) -> bool {
+        let mut n = 0;
+        for y1 in 0..self.dim() {
+            let is_match = (y1 == y) || unsafe { p as u32 == self.get_unchecked(x, y1) };
+            if is_match { n += 1; if n >= 4 { return true; } } else { n = 0; }
+        }
+        n = 0;
+        for x1 in 0..self.dim() {
+            let is_match = (x1 == x) || unsafe { p as u32 == self.get_unchecked(x1, y) };
+            if is_match { n += 1; if n >= 4 { return true; } } else { n = 0; }
+        }
+        n = 0;
+        let d = cmp::min(x, y);
+        for (x1, y1) in ((x - d)..self.dim()).zip((y - d)..self.dim()) {
+            let is_match = (x1 == x && y1 == y) ||
+                unsafe { p as u32 == self.get_unchecked(x1, y1) };
+            if is_match { n += 1; if n >= 4 { return true; } } else { n = 0; }
+        }
+        n = 0;
+        let d = cmp::min((self.dim() - 1) - x, y);
+        for (x1, y1) in (0..(x + d + 1)).rev().zip((y - d)..self.dim()) {
+            let is_match = (x1 == x && y1 == y) ||
+                unsafe { p as u32 == self.get_unchecked(x1, y1) };
+            if is_match { n += 1; if n >= 4 { return true; } } else { n = 0; }
+        }
+        false
+    }
+
+    pub fn make_move(self, p: Entry, m: Move) -> Board {
+        let (x, y) = self.move_pos(m);
+        let self1 = unsafe { self.set_unchecked(x, y, p as u32) };
+        self1
+    }
 }
+
+pub type PossibleMovesIter =
+    iter::FlatMap<iter::Zip<slice::Iter<'static, Side>, iter::Repeat<usize>>,
+                  SideMovesIter, fn((&'static Side, usize)) -> SideMovesIter>;
 
 pub struct BoardIter<'a> {
     board: &'a Board,
@@ -120,9 +248,43 @@ impl<'a> Iterator for BoardIter<'a> {
     }
 }
 
+pub struct MovePosIter {
+    dim: usize,
+    side: Side,
+    x: usize,
+    y: usize,
+}
+
+impl Iterator for MovePosIter {
+    type Item = (usize, usize);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.x >= self.dim || self.y >= self.dim {
+            None
+        } else {
+            let result = (self.x, self.y);
+            match self.side {
+                Side::North => self.y = self.y.wrapping_add(1),
+                Side::East => self.x = self.x.wrapping_sub(1),
+                Side::South => self.y = self.y.wrapping_sub(1),
+                Side::West => self.x = self.x.wrapping_add(1),
+            }
+            Some(result)
+        }
+    }
+}
+
 fn main() {
     let b = Board::new(10).set(5, 5, Entry::Block).set(9, 2, Entry::Block);
-    println!("{}", b.pretty());
+    println!("{}\n--", b.pretty());
+    let b = b.make_move(Entry::Player1, Move::new(Side::North, 5));
+    println!("{}\n--", b.pretty());
+    let b = b.make_move(Entry::Player2, Move::new(Side::West, 2));
+    println!("{}\n--", b.pretty());
+    let b = b.make_move(Entry::Player1, Move::new(Side::North, 5));
+    println!("{}\n--", b.pretty());
+    let b = b.make_move(Entry::Player2, Move::new(Side::West, 3));
+    println!("{}\n--", b.pretty());
 }
 
 #[cfg(test)]
@@ -147,5 +309,61 @@ mod tests {
         let b = b.set(0, 0, Entry::Block).set(1, 0, Entry::Player1).set(1, 1, Entry::Player2);
         let v = b.iter().collect::<Vec<_>>();
         assert_eq!(vec![Entry::Block, Entry::Player1, Entry::Empty, Entry::Player2], v);
+    }
+
+    #[test]
+    fn board_test_winning_vert_1() {
+        let b = Board::new(10).
+            make_move(Entry::Player1, Move::new(Side::North, 4)).
+            make_move(Entry::Player1, Move::new(Side::North, 4)).
+            make_move(Entry::Player1, Move::new(Side::North, 4)).
+            make_move(Entry::Player1, Move::new(Side::North, 4));
+        println!("\n{}\n--", b.pretty());
+        assert_eq!(false, b.is_winning_pos(Entry::Player1, 3, 6));
+        assert_eq!(true, b.is_winning_pos(Entry::Player1, 4, 6));
+        assert_eq!(false, b.is_winning_pos(Entry::Player2, 4, 6));
+    }
+
+    #[test]
+    fn board_test_winning_horiz_1() {
+        let b = Board::new(10).
+            make_move(Entry::Player1, Move::new(Side::East, 4)).
+            make_move(Entry::Player1, Move::new(Side::East, 4)).
+            make_move(Entry::Player1, Move::new(Side::East, 4)).
+            make_move(Entry::Player1, Move::new(Side::East, 4));
+        println!("\n{}\n--", b.pretty());
+        assert_eq!(false, b.is_winning_pos(Entry::Player1, 3, 3));
+        assert_eq!(true, b.is_winning_pos(Entry::Player1, 3, 4));
+        assert_eq!(false, b.is_winning_pos(Entry::Player2, 3, 4));
+    }
+
+    #[test]
+    fn board_test_winning_diag_1() {
+        let b = Board::new(10).
+            set(7, 7, Entry::Block).set(6, 6, Entry::Block).
+            set(5, 5, Entry::Block).set(4, 4, Entry::Block).
+            make_move(Entry::Player1, Move::new(Side::North, 4)).
+            make_move(Entry::Player1, Move::new(Side::North, 5)).
+            make_move(Entry::Player1, Move::new(Side::North, 6)).
+            make_move(Entry::Player1, Move::new(Side::North, 7));
+        println!("\n{}\n--", b.pretty());
+        assert_eq!(false, b.is_winning_pos(Entry::Player1, 8, 9));
+        assert_eq!(true, b.is_winning_pos(Entry::Player1, 7, 6));
+        assert_eq!(false, b.is_winning_pos(Entry::Player2, 7, 6));
+    }
+
+    #[test]
+    fn board_test_winning_diag_2() {
+        let b = Board::new(10).
+            set(4, 7, Entry::Block).set(5, 6, Entry::Block).
+            set(6, 5, Entry::Block).set(7, 4, Entry::Block).
+            make_move(Entry::Player1, Move::new(Side::North, 4)).
+            make_move(Entry::Player1, Move::new(Side::North, 5)).
+            make_move(Entry::Player1, Move::new(Side::North, 6)).
+            make_move(Entry::Player1, Move::new(Side::North, 7));
+        println!("\n{}\n--", b.pretty());
+        assert_eq!(false, b.is_winning_pos(Entry::Player1, 8, 9));
+        assert_eq!(true, b.is_winning_pos(Entry::Player1, 7, 3));
+        assert_eq!(false, b.is_winning_pos(Entry::Player2, 7, 3));
     }
 }

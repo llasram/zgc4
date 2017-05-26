@@ -2,12 +2,14 @@
 extern crate itertools;
 extern crate num_traits;
 extern crate smallvec;
+extern crate rand;
 
 use std::cmp;
 use std::iter;
 use std::ops::Range;
 use std::slice;
 
+use rand::Rng;
 use num_traits::FromPrimitive;
 use itertools::Itertools;
 
@@ -217,10 +219,22 @@ impl Board {
         false
     }
 
+    pub fn is_winning_move(&self, p: Entry, m: Move) -> bool {
+        let (x, y) = self.move_pos(m);
+        self.is_winning_pos(p, x, y)
+    }
+
     pub fn make_move(self, p: Entry, m: Move) -> Board {
         let (x, y) = self.move_pos(m);
         let self1 = unsafe { self.set_unchecked(x, y, p as u32) };
         self1
+    }
+
+    pub fn make_move_check_win(self, p: Entry, m: Move) -> (Board, bool) {
+        let (x, y) = self.move_pos(m);
+        let self1 = unsafe { self.set_unchecked(x, y, p as u32) };
+        let won = self1.is_winning_pos(p, x, y);
+        (self1, won)
     }
 }
 
@@ -274,17 +288,53 @@ impl Iterator for MovePosIter {
     }
 }
 
+trait Player {
+    fn entry(&self) -> Entry;
+    fn choose_move(&self, b: Board) -> Move;
+}
+
+pub struct RandomPlayer {
+    p: Entry,
+}
+
+impl RandomPlayer {
+    pub fn new(p: Entry) -> RandomPlayer {
+        RandomPlayer { p: p }
+    }
+}
+
+impl Player for RandomPlayer {
+    fn entry(&self) -> Entry { self.p }
+
+    fn choose_move(&self, b: Board) -> Move {
+        let mut n = 0;
+        for m in b.possible_moves().filter(|&m| b.is_legal_move(m)) {
+            if b.is_winning_move(self.p, m) { return m } else { n += 1 }
+        }
+        let mut rng = rand::thread_rng();
+        let i = rng.gen_range(0, n);
+        b.nth_legal_move(i).unwrap()
+    }
+}
+
+
 fn main() {
     let b = Board::new(10).set(5, 5, Entry::Block).set(9, 2, Entry::Block);
+    let mut state = (b, false);
+    let p1 = RandomPlayer::new(Entry::Player1);
+    let p2 = RandomPlayer::new(Entry::Player2);
+
     println!("{}\n--", b.pretty());
-    let b = b.make_move(Entry::Player1, Move::new(Side::North, 5));
-    println!("{}\n--", b.pretty());
-    let b = b.make_move(Entry::Player2, Move::new(Side::West, 2));
-    println!("{}\n--", b.pretty());
-    let b = b.make_move(Entry::Player1, Move::new(Side::North, 5));
-    println!("{}\n--", b.pretty());
-    let b = b.make_move(Entry::Player2, Move::new(Side::West, 3));
-    println!("{}\n--", b.pretty());
+    loop {
+        let b = state.0;
+        state = b.make_move_check_win(p1.entry(), p1.choose_move(b));
+        println!("{}\n--", state.0.pretty());
+        if state.1 { break; }
+        let b = state.0;
+        state = b.make_move_check_win(p2.entry(), p2.choose_move(b));
+        println!("{}\n--", state.0.pretty());
+        if state.1 { break; }
+    }
 }
 
 #[cfg(test)]

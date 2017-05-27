@@ -6,6 +6,7 @@ extern crate rand;
 
 use std::cmp;
 use std::iter;
+use std::io::{self, Write};
 use std::ops::Range;
 use std::slice;
 
@@ -317,23 +318,58 @@ impl Player for RandomPlayer {
     }
 }
 
+pub struct HumanPlayer {
+    p: Entry,
+}
+
+impl HumanPlayer {
+    pub fn new(p: Entry) -> HumanPlayer {
+        HumanPlayer { p: p }
+    }
+}
+
+impl Player for HumanPlayer {
+    fn entry(&self) -> Entry { self.p }
+
+    fn choose_move(&self, _b: Board) -> Move {
+        let mut buffer = String::new();
+        print!("Side? ");
+        io::stdout().flush().unwrap();
+        buffer.clear();
+        io::stdin().read_line(&mut buffer).unwrap();
+        let side = match buffer.trim() {
+            "n" => Side::North,
+            "e" => Side::East,
+            "s" => Side::South,
+            "w" => Side::West,
+            _ => panic!("invalid side"),
+        };
+        print!("Position? ");
+        io::stdout().flush().unwrap();
+        buffer.clear();
+        io::stdin().read_line(&mut buffer).unwrap();
+        let pos = buffer.trim().parse::<usize>().unwrap();
+        Move::new(side, pos)
+    }
+}
 
 fn main() {
-    let b = Board::new(10).set(5, 5, Entry::Block).set(9, 2, Entry::Block);
-    let mut state = (b, false);
-    let p1 = RandomPlayer::new(Entry::Player1);
-    let p2 = RandomPlayer::new(Entry::Player2);
+    let mut b = Board::new(10).set(5, 5, Entry::Block).set(9, 2, Entry::Block);
+    let players: [Box<Player>; 2] = [Box::new(RandomPlayer::new(Entry::Player1)),
+                                     Box::new(HumanPlayer::new(Entry::Player2))];
+    let mut over = false;
 
     println!("{}\n--", b.pretty());
-    loop {
-        let b = state.0;
-        state = b.make_move_check_win(p1.entry(), p1.choose_move(b));
-        println!("{}\n--", state.0.pretty());
-        if state.1 { break; }
-        let b = state.0;
-        state = b.make_move_check_win(p2.entry(), p2.choose_move(b));
-        println!("{}\n--", state.0.pretty());
-        if state.1 { break; }
+    while !over {
+        for p in players.iter() {
+            let (b1, won) = b.make_move_check_win(p.entry(), p.choose_move(b));
+            b = b1;
+            println!("{}\n--", b.pretty());
+            if won {
+                over = true;
+                break;
+            }
+        }
     }
 }
 

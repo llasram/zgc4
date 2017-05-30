@@ -19,6 +19,7 @@ const ENTRY_MASK: u32 = !(!0u32 << ENTRY_BITS);
 const BOARD_WORD_BITS: usize = 32;
 const BOARD_WORD_ENTRIES: usize = BOARD_WORD_BITS / ENTRY_BITS;
 const BOARD_WORDS: usize = 16;
+const PRIOR_SMOOTH: u64 = 500;
 
 enum_from_primitive! {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -353,10 +354,139 @@ impl Player for HumanPlayer {
     }
 }
 
+pub struct MCTSPlayer {
+    p: Entry
+}
+
+impl MCTSPlayer {
+    pub fn new(p: Entry) -> MCTSPlayer {
+        MCTSPlayer { p: p }
+    }
+}
+
+impl Player for MCTSPlayer {
+    fn entry(&self) -> Entry { self.p }
+
+    fn choose_move(&self, b: Board) -> Move {
+        for m in b.possible_moves().filter(|&m| b.is_legal_move(m)) {
+            if b.is_winning_move(self.p, m) { return m }
+        }
+        let mut n = SearchNode::new();
+        for _ in 0..100000 { n.explore(self.p, b); }
+        println!("{:?}",
+                 n.children.as_ref().unwrap().iter()
+                 .map(|n| (n.nwin, n.nplay, n.p_win()))
+                 .collect::<Vec<_>>());
+        n.best_move(b)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct SearchNode {
+    nwin: u64,
+    nplay: u64,
+    children: Option<Vec<SearchNode>>,
+}
+
+impl SearchNode {
+    pub fn new() -> SearchNode {
+        SearchNode { nwin: 0, nplay: 0, children: None }
+    }
+
+    pub fn best_move(&self, b: Board) -> Move {
+        let i = self.children.as_ref().unwrap().iter()
+            .enumerate().max_by(|&(_, n1), &(_, n2)| {
+                n1.p_win().partial_cmp(&n2.p_win()).unwrap()
+            }).map(|(i, _)| i).unwrap();
+        b.nth_legal_move(i).unwrap()
+    }
+
+    pub fn explore(&mut self, p: Entry, b: Board) -> i32 {
+        if self.children.is_none() {
+            if self.nwin == std::u64::MAX { return 1; }
+            let mut n = 0;
+            for m in b.possible_moves().filter(|&m| b.is_legal_move(m)) {
+                if b.is_winning_move(p, m) {
+                    self.nwin = std::u64::MAX;
+                    self.nplay = std::u64::MAX;
+                    return 1;
+                }
+                n += 1;
+            }
+            self.children = Some(iter::repeat(SearchNode::new()).take(n).collect::<_>());
+            self.explore_deepen(p, b, n)
+        } else {
+            self.explore_tree(p, b)
+        }
+    }
+
+    pub fn explore_deepen(&mut self, p: Entry, b: Board, n: usize) -> i32 {
+        let mut rng = rand::thread_rng();
+        let i = rng.gen_range(0, n);
+        let b = b.make_move(p, b.nth_legal_move(i).unwrap());
+        let p = match p { Entry::Player1 => Entry::Player2, _ => Entry::Player1 };
+        let win = -self.children.as_mut().unwrap().get_mut(i).unwrap().explore_random(p, b);
+        self.nwin += if win > 0 { 1 } else { 0 };
+        self.nplay += 1;
+        win
+    }
+
+    pub fn explore_random(&mut self, mut p: Entry, mut b: Board) -> i32 {
+        let mut rng = rand::thread_rng();
+        let mut win = 1;
+        'outer: loop {
+            let mut n = 0;
+            for m in b.possible_moves().filter(|&m| b.is_legal_move(m)) {
+                if b.is_winning_move(p, m) { break 'outer; } else { n += 1 }
+            }
+            if n == 0 { win = 0; break; }
+            let i = rng.gen_range(0, n);
+            b = b.make_move(p, b.nth_legal_move(i).unwrap());
+            p = match p { Entry::Player1 => Entry::Player2, _ => Entry::Player1 };
+            win = -win;
+        }
+        self.nwin += if win > 0 { 1 } else { 0 };
+        self.nplay += 1;
+        win
+    }
+
+    pub fn explore_tree(&mut self, p: Entry, b: Board) -> i32 {
+        let children = self.children.as_mut().unwrap();
+        let total = children.iter().map(SearchNode::p_win).sum::<f64>();
+        if total == 0.0 {
+            self.nwin = 0;
+            self.nplay = std::u64::MAX;
+            return -1;
+        }
+        let mut rng = rand::thread_rng();
+        let x = rng.gen_range(0.0, total);
+        let i = children.iter().scan(0.0, |state, n| {
+            *state += n.p_win();
+            Some(*state)
+        }).position(|y| x < y).unwrap();
+        let b = b.make_move(p, b.nth_legal_move(i).unwrap());
+        let p = match p { Entry::Player1 => Entry::Player2, _ => Entry::Player1 };
+        let win = -children.get_mut(i).unwrap().explore(p, b);
+        self.nwin += if win > 0 { 1 } else { 0 };
+        self.nplay += 1;
+        win
+    }
+
+    pub fn p_win(&self) -> f64 {
+        if self.nplay == std::u64::MAX {
+            if self.nwin == 0 { 1.0 } else { 0.0 }
+        } else {
+            let nwin = self.nwin + PRIOR_SMOOTH;
+            let nplay = self.nplay + PRIOR_SMOOTH + PRIOR_SMOOTH;
+            (nplay - nwin) as f64 / nplay as f64
+        }
+    }
+}
+
 fn main() {
     let mut b = Board::new(10).set(5, 5, Entry::Block).set(9, 2, Entry::Block);
-    let players: [Box<Player>; 2] = [Box::new(RandomPlayer::new(Entry::Player1)),
-                                     Box::new(HumanPlayer::new(Entry::Player2))];
+    let players: [Box<Player>; 2] = [Box::new(MCTSPlayer::new(Entry::Player1)),
+                                     Box::new(MCTSPlayer::new(Entry::Player2))];
     let mut over = false;
 
     println!("{}\n--", b.pretty());

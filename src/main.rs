@@ -4,6 +4,8 @@ extern crate num_traits;
 extern crate smallvec;
 extern crate rand;
 
+mod board;
+
 use std::cmp;
 use std::iter;
 use std::io::{self, Write};

@@ -5,6 +5,8 @@ use std::iter;
 use std::ops;
 use std::slice;
 
+use itertools::Itertools;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
     IllegalMove(Move),
@@ -40,6 +42,17 @@ pub enum Entry {
     Block,
     Player1,
     Player2,
+}
+
+impl fmt::Display for Entry {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Entry::Empty => write!(f, "  "),
+            Entry::Block => write!(f, "▐█"),
+            Entry::Player1 => write!(f, "▐1"),
+            Entry::Player2 => write!(f, "▐2"),
+        }
+    }
 }
 
 impl Entry {
@@ -141,7 +154,7 @@ impl Board {
             let is_this = row1 == row;
             let is_active = self.active == unsafe { self.get_unchecked(row1, col) };
             let is_match = is_this || is_active;
-            if !is_match { n += 1; if n >= 4 { return true; } } else { n = 0; }
+            if is_match { n += 1; if n >= 4 { return true; } } else { n = 0; }
         }
         false
     }
@@ -200,6 +213,25 @@ impl Board {
         }
         self.state
     }
+
+    pub fn pass(&mut self) -> () {
+        debug_assert!(self.state == GameState::Ongoing);
+        self.active = self.active.flip();
+    }
+}
+
+impl fmt::Display for Board {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "  ")?;
+        for i in 0..self.size { write!(f, "{: >2}", i)?; }
+        write!(f, "\n")?;
+        for (i, entries) in self.data.iter().chunks(self.size).into_iter().enumerate() {
+            write!(f, "{: >2}", i)?;
+            for e in entries { write!(f, "{}", e)?; }
+            write!(f, "\n")?;
+        }
+        Ok(())
+    }
 }
 
 pub struct LegalMovesIter<'a> {
@@ -230,7 +262,7 @@ impl Move {
     }
 
     fn succ(&self, b: &Board) -> Option<Move> {
-        let pos = self.pos + 1;
+        let pos = self.pos.wrapping_add(1);
         if pos < b.size {
             Some(Move::new(self.side, pos))
         } else {
@@ -335,5 +367,16 @@ mod tests {
         assert_eq!(Some(Side::South), Side::East.succ());
         assert_eq!(Some(Side::West), Side::South.succ());
         assert_eq!(None, Side::West.succ());
+    }
+
+    #[test]
+    fn board_set_then_get() {
+        let mut b = Board::new(10);
+        b.set(5, 7, Entry::Player1);
+        assert_eq!(Some(Entry::Empty), b.get(5, 6));
+        assert_eq!(Some(Entry::Empty), b.get(6, 8));
+        assert_eq!(Some(Entry::Player1), b.get(5, 7));
+        b.set(5, 7, Entry::Block);
+        assert_eq!(Some(Entry::Block), b.get(5, 7));
     }
 }

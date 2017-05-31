@@ -485,7 +485,7 @@ impl SearchNode {
     }
 }
 
-fn main() {
+fn old_main() {
     let mut b = Board::new(10).set(5, 5, Entry::Block).set(9, 2, Entry::Block);
     let players: [Box<Player>; 2] = [Box::new(MCTSPlayer::new(Entry::Player1)),
                                      Box::new(MCTSPlayer::new(Entry::Player2))];
@@ -503,6 +503,15 @@ fn main() {
             }
         }
     }
+}
+
+fn main() {
+    let mut b = board::Board::new(10);
+    b.set(5, 5, board::Entry::Block);
+    b.set(9, 2, board::Entry::Block);
+    b.make_move(board::Move::new(board::Side::North, 0)).ok();
+    b.make_move(board::Move::new(board::Side::West, 6)).ok();
+    println!("{}", b);
 }
 
 #[cfg(test)]

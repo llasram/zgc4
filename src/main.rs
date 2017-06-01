@@ -5,6 +5,7 @@ extern crate smallvec;
 extern crate rand;
 
 mod board;
+mod player;
 
 use std::cmp;
 use std::iter;
@@ -507,15 +508,28 @@ fn old_main() {
 
 fn main() {
     let mut b = board::Board::new(10);
-    b.set(8, 6, board::Entry::Block);
-    b.set(7, 7, board::Entry::Block);
-    b.set(6, 8, board::Entry::Block);
-    b.set(5, 9, board::Entry::Block);
-    b.make_move(board::Move::new(board::Side::South, 6)).ok(); b.pass();
-    b.make_move(board::Move::new(board::Side::South, 7)).ok(); b.pass();
-    b.make_move(board::Move::new(board::Side::South, 9)).ok(); b.pass();
-    b.make_move(board::Move::new(board::Side::South, 8)).ok();
+    b.set(5, 5, board::Entry::Block);
+    b.set(9, 2, board::Entry::Block);
+    let players: [Box<player::Player>; 2] =
+        [Box::new(player::RandomPlayer),
+         Box::new(player::RandomPlayer)];
     println!("{}", b);
+    for p in players.iter().cycle() {
+        let m = p.choose(&b);
+        let r = b.make_legal_move(m);
+        println!("{}", b);
+        match r {
+            board::GameState::Ongoing => (),
+            board::GameState::Drawn => {
+                println!("Drawn.");
+                break;
+            },
+            board::GameState::Won => {
+                println!("Won! ({})", b.active());
+                break;
+            },
+        }
+    }
 }
 
 #[cfg(test)]

@@ -111,6 +111,8 @@ impl Board {
         Board { size, active, nlegal, state, data }
     }
 
+    pub fn active(&self) -> Entry { self.active }
+
     fn index_for(&self, row: usize, col: usize) -> usize {
         row * self.size + col
     }
@@ -474,5 +476,25 @@ mod tests {
         b.set(1, 0, Entry::Block);
         assert_eq!(0, b.nlegal);
         assert_eq!(0, b.legal_moves_iter().count());
+    }
+
+    #[test]
+    fn move_is_legal() {
+        let mut b = Board::new(2);
+        b.set(0, 0, Entry::Block);
+        assert!(Move::new(Side::North, 1).is_legal(&b));
+        assert!(!Move::new(Side::North, 0).is_legal(&b));
+        assert!(!Move::new(Side::West, 0).is_legal(&b));
+        assert!(Move::new(Side::West, 1).is_legal(&b));
+    }
+
+    #[test]
+    fn legal_move_is_winning() {
+        let mut b = Board::new(4);
+        let m = Move::new(Side::North, 0);
+        b.make_move(m).ok(); b.pass();
+        b.make_move(m).ok(); b.pass();
+        b.make_move(m).ok(); b.pass();
+        assert_eq!(Some(true), m.annotated(&b).as_ref().map(LegalMove::is_winning));
     }
 }

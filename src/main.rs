@@ -11,8 +11,8 @@ use player::Player;
 
 fn main() {
     let mut b = Board::generate(10, 6);
-    let players: [Box<Player>; 2] = [Box::new(player::HumanPlayer),
-                                     Box::new(player::MCTSPlayer)];
+    let players: [Box<Player>; 2] = [Box::new(player::MCTSPlayer::new(100000, 100)),
+                                     Box::new(player::MCTSPlayer::new(1000000, 100))];
     println!("{}", b);
     for p in players.iter().cycle() {
         let m = p.choose(&b);

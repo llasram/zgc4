@@ -11,7 +11,7 @@ use player::Player;
 
 fn main() {
     let mut b = Board::generate(10, 6);
-    let players: [Box<Player>; 2] = [Box::new(player::MCTSPlayer),
+    let players: [Box<Player>; 2] = [Box::new(player::HumanPlayer),
                                      Box::new(player::MCTSPlayer)];
     println!("{}", b);
     for p in players.iter().cycle() {

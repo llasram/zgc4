@@ -5,7 +5,7 @@ use rand::{self, Rng};
 use board::{Board, LegalMove, GameState};
 use player::Player;
 
-const PRIOR_SMOOTH: usize = 500;
+const PRIOR_SMOOTH: usize = 10;
 
 pub struct MCTSPlayer;
 
@@ -76,20 +76,18 @@ impl Node {
     }
 
     fn choose_unvisited_first<R: Rng>(rng: &mut R, b: &Board) -> (usize, usize, LegalMove) {
-        let mut iter = b.legal_moves_iter();
-        let mut m = iter.next().unwrap();
-        if m.is_winning() { return (0, 0, m); }
+        let mut m = None;
         let mut i = 0;
-        let mut n = 1;
-        for (i1, m1) in iter.enumerate() {
+        let mut n = 0;
+        for (i1, m1) in b.legal_moves_iter().enumerate() {
             n += 1;
-            if m1.is_winning() { return (0, i1, m1); }
+            if m1.is_winning() { return (n, i1, m1); }
             if rng.gen_range(0, n) == 0 {
                 i = i1;
-                m = m1;
+                m = Some(m1);
             }
         }
-        (n, i, m)
+        (n, i, m.unwrap())
     }
 
     fn choose_unvisited_rest<R: Rng>(rng: &mut R, mut b: Board) -> isize {
@@ -116,7 +114,7 @@ impl Node {
 }
 
 #[derive(Clone, Debug)]
-struct Probabilistic  {
+struct Probabilistic {
     nwin: usize,
     nplay: usize,
     children: Box<[Node]>,

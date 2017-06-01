@@ -507,12 +507,10 @@ fn old_main() {
 }
 
 fn main() {
-    let mut b = board::Board::new(10);
-    b.set(5, 5, board::Entry::Block);
-    b.set(9, 2, board::Entry::Block);
+    let mut b = board::Board::generate(10, 6);
     let players: [Box<player::Player>; 2] =
-        [Box::new(player::RandomPlayer),
-         Box::new(player::HumanPlayer)];
+        [Box::new(player::HumanPlayer),
+         Box::new(player::MCTSPlayer)];
     println!("{}", b);
     for p in players.iter().cycle() {
         let m = p.choose(&b);

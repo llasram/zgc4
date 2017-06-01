@@ -4,6 +4,7 @@ use std::fmt;
 use std::iter;
 
 use itertools::Itertools;
+use rand;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
@@ -111,7 +112,23 @@ impl Board {
         Board { size, active, nlegal, state, data }
     }
 
+    pub fn generate(size: usize, filled: usize) -> Board {
+        let mut b = Board::new(size);
+        let mut rng = rand::thread_rng();
+        for i in rand::sample(&mut rng, 0..b.data.len(), filled).into_iter() {
+            let (row, col) = b.pos_for(i);
+            b.set(row, col, Entry::Block);
+        }
+        b
+    }
+
     pub fn active(&self) -> Entry { self.active }
+
+    fn pos_for(&self, index: usize) -> (usize, usize) {
+        let row = index / self.size;
+        let col = index % self.size;
+        (row, col)
+    }
 
     fn index_for(&self, row: usize, col: usize) -> usize {
         row * self.size + col

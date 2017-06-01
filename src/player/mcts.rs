@@ -1,5 +1,6 @@
 use std::cmp;
 use std::iter;
+use std::time::{Duration, Instant};
 
 use rand::{self, Rng};
 use rand::distributions::IndependentSample;
@@ -8,24 +9,31 @@ use rand::distributions::gamma::Gamma;
 use board::{Board, LegalMove, GameState};
 use player::Player;
 
+// Jeffrey's prior
+const PRIOR: f64 = 0.5;
+
 pub struct MCTSPlayer {
-    niter: usize,
-    prior: usize,
+    dur: Duration,
 }
 
 impl MCTSPlayer {
-    pub fn new(niter: usize, prior: usize) -> Self {
-        MCTSPlayer { niter, prior }
+    pub fn new(dur: Duration) -> Self {
+        MCTSPlayer { dur }
     }
 }
 
 impl Player for MCTSPlayer {
     fn choose(&self, b: &Board) -> LegalMove {
+        let now = Instant::now();
         let mut rng = rand::thread_rng();
         let mut node = Node::Unvisited;
-        for _ in 0..self.niter {
-            node.explore(&mut rng, b.clone(), self.prior);
+        for i in 0.. {
+            node.explore(&mut rng, b.clone());
             if node.is_certain() { break; }
+            if now.elapsed() >= self.dur {
+                println!("Choosing move after {} play-throughs", i);
+                break;
+            }
         }
         node.best_move(b)
     }
@@ -67,10 +75,10 @@ impl Node {
         }
     }
 
-    pub fn explore<R: Rng>(&mut self, rng: &mut R, b: Board, prior: usize) -> isize {
+    pub fn explore<R: Rng>(&mut self, rng: &mut R, b: Board) -> f64 {
         let result = match *self {
-            Node::Unvisited => self.explore_unvisted(rng, b, prior),
-            Node::Probabilistic(ref mut p) => p.explore(rng, b, prior),
+            Node::Unvisited => self.explore_unvisted(rng, b),
+            Node::Probabilistic(ref mut p) => p.explore(rng, b),
             _ => Ok(self.score()),
         };
         match result {
@@ -82,25 +90,25 @@ impl Node {
         }
     }
 
-    fn score(&self) -> isize {
+    fn score(&self) -> f64 {
         match *self {
             Node::Unvisited => panic!("node is unvisited"),
-            Node::CertainLoss(..) => -1,
-            Node::CertainWin(..) => 1,
-            Node::CertainDraw(..) => 0,
+            Node::CertainLoss(..) => 1.0,
+            Node::CertainWin(..) => 0.0,
+            Node::CertainDraw(..) => 0.5,
             Node::Probabilistic(ref p) => p.score(),
         }
     }
 
-    fn explore_unvisted<R: Rng>(&mut self, rng: &mut R, mut b: Board, prior: usize)
-                                -> Result<isize, Node> {
+    fn explore_unvisted<R: Rng>(&mut self, rng: &mut R, mut b: Board)
+                                -> Result<f64, Node> {
         let (n, i, m) = Node::choose_unvisited_first(rng, &b);
         match b.make_legal_move(m) {
             GameState::Won => Err(Node::CertainWin(Certain::new(1, i))),
             GameState::Drawn => Err(Node::CertainDraw(Certain::new(1, i))),
             GameState::Ongoing => {
                 let score = Node::choose_unvisited_rest(rng, b);
-                Err(Node::Probabilistic(Probabilistic::new(n, prior, score)))
+                Err(Node::Probabilistic(Probabilistic::new(n, score)))
             }
         }
     }
@@ -120,14 +128,14 @@ impl Node {
         (n, i, m.unwrap())
     }
 
-    fn choose_unvisited_rest<R: Rng>(rng: &mut R, mut b: Board) -> isize {
-        let mut score = -1;
+    fn choose_unvisited_rest<R: Rng>(rng: &mut R, mut b: Board) -> f64 {
+        let mut score = 1.0;
         loop {
             let m = super::choose_winning_or_random(&b, rng);
             match b.make_legal_move(m) {
                 GameState::Won => return score,
-                GameState::Drawn => return 0,
-                GameState::Ongoing => score = -score,
+                GameState::Drawn => return 0.5,
+                GameState::Ongoing => score = 1.0 - score,
             }
         }
     }
@@ -137,7 +145,7 @@ impl Node {
             Node::Unvisited => 0.5,
             Node::CertainLoss(..) => 1.0,
             Node::CertainWin(..) => 0.0,
-            Node::CertainDraw(..) => 0.0,
+            Node::CertainDraw(..) => 0.5,
             Node::Probabilistic(ref p) => p.p_parent_win(),
         }
     }
@@ -173,18 +181,18 @@ impl Certain {
 
 #[derive(Clone, Debug)]
 struct Probabilistic {
-    nwin: usize,
-    nplay: usize,
+    score: f64,
+    nplay: f64,
     children: Box<[Node]>,
 }
 
 impl Probabilistic {
-    fn new(nchildren: usize, prior: usize, score: isize) -> Self {
-        let nwin = prior + if score > 0 { 1 } else { 0 };
-        let nplay = prior + prior + 1;
+    fn new(nchildren: usize, score: f64) -> Self {
+        let score = PRIOR + score;
+        let nplay = PRIOR + PRIOR + 1.0;
         let children = iter::repeat(Node::Unvisited).
             take(nchildren).collect::<Vec<Node>>().into_boxed_slice();
-        Probabilistic { nwin, nplay, children }
+        Probabilistic { score, nplay, children }
     }
 
     fn best_move(&self, b: &Board) -> LegalMove {
@@ -194,19 +202,18 @@ impl Probabilistic {
     }
 
     fn p_parent_win(&self) -> f64 {
-        (self.nplay - self.nwin) as f64 / self.nplay as f64
+        self.score / self.nplay as f64
     }
 
     fn p_parent_win_sample<R: Rng>(&self, r: &mut R) -> f64 {
-        let alpha = (self.nplay - self.nwin) as f64;
-        let beta = self.nplay as f64;
-        let a = Gamma::new(alpha, 1.0).ind_sample(r);
-        let b = Gamma::new(beta, 1.0).ind_sample(r);
+        // Sample from Beta distribution via Gamma samples
+        let a = Gamma::new(self.score, 1.0).ind_sample(r);
+        let b = Gamma::new(self.nplay as f64, 1.0).ind_sample(r);
         a / (a + b)
     }
 
-    fn explore<R: Rng>(&mut self, rng: &mut R, mut b: Board, prior: usize)
-                       -> Result<isize, Node> {
+    fn explore<R: Rng>(&mut self, rng: &mut R, mut b: Board)
+                       -> Result<f64, Node> {
         let mut closs = None;
         let mut nwin = 0;
         let mut cwin = None;
@@ -246,16 +253,13 @@ impl Probabilistic {
             max_by(|&(p1, _, _), &(p2, _, _)| p1.partial_cmp(&p2).unwrap()).
             unwrap();
         b.make_legal_move(m);
-        let score = -node.explore(rng, b, prior);
-        self.nwin += if score > 0 { 1 } else { 0 };
-        self.nplay += 1;
+        let score = 1.0 - node.explore(rng, b);
+        self.score += score;
+        self.nplay += 1.0;
         Ok(score)
     }
 
-    fn score(&self) -> isize {
-        let half = self.nplay / 2;
-        if self.nwin > half { 1 }
-        else if self.nwin == half { 0 }
-        else { -1 }
+    fn score(&self) -> f64 {
+        self.score - PRIOR as f64
     }
 }

@@ -296,7 +296,7 @@ impl Move {
         }
     }
 
-    fn is_legal(&self, b: &Board) -> bool {
+    pub fn is_legal(&self, b: &Board) -> bool {
         let (row, col) = self.origin(b);
         b.get(row, col).map_or(false, Entry::is_empty)
     }

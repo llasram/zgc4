@@ -13,7 +13,7 @@ impl Player for MCTSPlayer {
     fn choose(&self, b: &Board) -> LegalMove {
         let mut rng = rand::thread_rng();
         let mut node = Node::Unvisited;
-        for _ in 0..100000 { node.explore(&mut rng, b.clone()); }
+        for _ in 0..10000 { node.explore(&mut rng, b.clone()); }
         node.best_move(b)
     }
 }

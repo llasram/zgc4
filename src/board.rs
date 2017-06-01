@@ -2,8 +2,6 @@ use std::cmp;
 use std::error;
 use std::fmt;
 use std::iter;
-use std::ops;
-use std::slice;
 
 use itertools::Itertools;
 
@@ -48,9 +46,9 @@ impl fmt::Display for Entry {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Entry::Empty => write!(f, "  "),
-            Entry::Block => write!(f, "▐█"),
-            Entry::Player1 => write!(f, "▐1"),
-            Entry::Player2 => write!(f, "▐2"),
+            Entry::Block => write!(f, "█▋"),
+            Entry::Player1 => write!(f, "●1"),
+            Entry::Player2 => write!(f, "○2"),
         }
     }
 }
@@ -222,11 +220,11 @@ impl Board {
 
 impl fmt::Display for Board {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "  ")?;
+        write!(f, "   ")?;
         for i in 0..self.size { write!(f, "{: >2}", i)?; }
         write!(f, "\n")?;
         for (i, entries) in self.data.iter().chunks(self.size).into_iter().enumerate() {
-            write!(f, "{: >2}", i)?;
+            write!(f, "{: >2} ", i)?;
             for e in entries { write!(f, "{}", e)?; }
             write!(f, "\n")?;
         }
@@ -378,5 +376,103 @@ mod tests {
         assert_eq!(Some(Entry::Player1), b.get(5, 7));
         b.set(5, 7, Entry::Block);
         assert_eq!(Some(Entry::Block), b.get(5, 7));
+    }
+
+    #[test]
+    fn board_winning_vert() {
+        let mut b = Board::new(10);
+        assert_eq!(Ok(GameState::Ongoing), b.make_move(Move::new(Side::North, 4))); b.pass();
+        assert_eq!(Ok(GameState::Ongoing), b.make_move(Move::new(Side::North, 4))); b.pass();
+        assert_eq!(Ok(GameState::Ongoing), b.make_move(Move::new(Side::North, 4))); b.pass();
+        assert_eq!(Ok(GameState::Won), b.make_move(Move::new(Side::North, 4)));
+    }
+
+    #[test]
+    fn board_winning_horiz() {
+        let mut b = Board::new(10);
+        assert_eq!(Ok(GameState::Ongoing), b.make_move(Move::new(Side::East, 4))); b.pass();
+        assert_eq!(Ok(GameState::Ongoing), b.make_move(Move::new(Side::East, 4))); b.pass();
+        assert_eq!(Ok(GameState::Ongoing), b.make_move(Move::new(Side::East, 4))); b.pass();
+        assert_eq!(Ok(GameState::Won), b.make_move(Move::new(Side::East, 4)));
+    }
+
+    #[test]
+    fn board_winning_diag_nw_se() {
+        let mut b = Board::new(10);
+        b.set(4, 4, Entry::Block);
+        b.set(5, 5, Entry::Block);
+        b.set(6, 6, Entry::Block);
+        b.set(7, 7, Entry::Block);
+        assert_eq!(Ok(GameState::Ongoing), b.make_move(Move::new(Side::North, 4))); b.pass();
+        assert_eq!(Ok(GameState::Ongoing), b.make_move(Move::new(Side::North, 5))); b.pass();
+        assert_eq!(Ok(GameState::Ongoing), b.make_move(Move::new(Side::North, 6))); b.pass();
+        assert_eq!(Ok(GameState::Won), b.make_move(Move::new(Side::North, 7)));
+    }
+
+    #[test]
+    fn board_winning_diag_sw_ne_1() {
+        let mut b = Board::new(10);
+        b.set(4, 7, Entry::Block);
+        b.set(5, 6, Entry::Block);
+        b.set(6, 5, Entry::Block);
+        b.set(7, 4, Entry::Block);
+        assert_eq!(Ok(GameState::Ongoing), b.make_move(Move::new(Side::North, 4))); b.pass();
+        assert_eq!(Ok(GameState::Ongoing), b.make_move(Move::new(Side::North, 5))); b.pass();
+        assert_eq!(Ok(GameState::Ongoing), b.make_move(Move::new(Side::North, 6))); b.pass();
+        assert_eq!(Ok(GameState::Won), b.make_move(Move::new(Side::North, 7)));
+    }
+
+    #[test]
+    fn board_winning_diag_sw_ne_2() {
+        let mut b = Board::new(10);
+        b.set(4, 0, Entry::Block);
+        b.set(3, 1, Entry::Block);
+        b.set(2, 2, Entry::Block);
+        b.set(1, 3, Entry::Block);
+        assert_eq!(Ok(GameState::Ongoing), b.make_move(Move::new(Side::North, 0))); b.pass();
+        assert_eq!(Ok(GameState::Ongoing), b.make_move(Move::new(Side::North, 1))); b.pass();
+        assert_eq!(Ok(GameState::Ongoing), b.make_move(Move::new(Side::North, 2))); b.pass();
+        assert_eq!(Ok(GameState::Won), b.make_move(Move::new(Side::North, 3)));
+    }
+
+    #[test]
+    fn board_winning_diag_sw_ne_3() {
+        let mut b = Board::new(10);
+        b.set(4, 6, Entry::Block);
+        b.set(3, 7, Entry::Block);
+        b.set(2, 8, Entry::Block);
+        b.set(1, 9, Entry::Block);
+        assert_eq!(Ok(GameState::Ongoing), b.make_move(Move::new(Side::North, 6))); b.pass();
+        assert_eq!(Ok(GameState::Ongoing), b.make_move(Move::new(Side::North, 7))); b.pass();
+        assert_eq!(Ok(GameState::Ongoing), b.make_move(Move::new(Side::North, 8))); b.pass();
+        assert_eq!(Ok(GameState::Won), b.make_move(Move::new(Side::North, 9)));
+    }
+
+    #[test]
+    fn board_winning_diag_sw_ne_4() {
+        let mut b = Board::new(10);
+        b.set(8, 6, Entry::Block);
+        b.set(7, 7, Entry::Block);
+        b.set(6, 8, Entry::Block);
+        b.set(5, 9, Entry::Block);
+        assert_eq!(Ok(GameState::Ongoing), b.make_move(Move::new(Side::South, 6))); b.pass();
+        assert_eq!(Ok(GameState::Ongoing), b.make_move(Move::new(Side::South, 7))); b.pass();
+        assert_eq!(Ok(GameState::Ongoing), b.make_move(Move::new(Side::South, 9))); b.pass();
+        assert_eq!(Ok(GameState::Won), b.make_move(Move::new(Side::South, 8)));
+    }
+
+    #[test]
+    fn board_legal_moves_iter() {
+        let mut b = Board::new(2);
+        assert_eq!(b.nlegal, b.legal_moves_iter().count());
+        b.set(0, 0, Entry::Block);
+        assert_eq!(b.nlegal, b.legal_moves_iter().count());
+        b.set(1, 1, Entry::Block);
+        assert_eq!(b.nlegal, b.legal_moves_iter().count());
+        b.set(0, 1, Entry::Block);
+        assert_eq!(b.nlegal, b.legal_moves_iter().count());
+        b.set(1, 0, Entry::Block);
+        assert_eq!(0, b.nlegal);
+        assert_eq!(0, b.legal_moves_iter().count());
     }
 }

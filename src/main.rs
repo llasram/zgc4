@@ -507,10 +507,14 @@ fn old_main() {
 
 fn main() {
     let mut b = board::Board::new(10);
-    b.set(5, 5, board::Entry::Block);
-    b.set(9, 2, board::Entry::Block);
-    b.make_move(board::Move::new(board::Side::North, 0)).ok();
-    b.make_move(board::Move::new(board::Side::West, 6)).ok();
+    b.set(8, 6, board::Entry::Block);
+    b.set(7, 7, board::Entry::Block);
+    b.set(6, 8, board::Entry::Block);
+    b.set(5, 9, board::Entry::Block);
+    b.make_move(board::Move::new(board::Side::South, 6)).ok(); b.pass();
+    b.make_move(board::Move::new(board::Side::South, 7)).ok(); b.pass();
+    b.make_move(board::Move::new(board::Side::South, 9)).ok(); b.pass();
+    b.make_move(board::Move::new(board::Side::South, 8)).ok();
     println!("{}", b);
 }
 

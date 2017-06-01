@@ -512,7 +512,7 @@ fn main() {
     b.set(9, 2, board::Entry::Block);
     let players: [Box<player::Player>; 2] =
         [Box::new(player::RandomPlayer),
-         Box::new(player::RandomPlayer)];
+         Box::new(player::HumanPlayer)];
     println!("{}", b);
     for p in players.iter().cycle() {
         let m = p.choose(&b);

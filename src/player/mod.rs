@@ -1,4 +1,5 @@
 mod random;
+mod human;
 
 use rand::Rng;
 
@@ -20,3 +21,4 @@ fn choose_winning_or_random<R: Rng>(b: &Board, rng: &mut R) -> LegalMove {
 }
 
 pub use self::random::RandomPlayer;
+pub use self::human::HumanPlayer;

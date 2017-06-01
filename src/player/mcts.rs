@@ -2,6 +2,8 @@ use std::cmp;
 use std::iter;
 
 use rand::{self, Rng};
+use rand::distributions::IndependentSample;
+use rand::distributions::gamma::Gamma;
 
 use board::{Board, LegalMove, GameState};
 use player::Player;
@@ -139,6 +141,13 @@ impl Node {
             Node::Probabilistic(ref p) => p.p_parent_win(),
         }
     }
+
+    fn p_parent_win_sample<R: Rng>(&self, r: &mut R) -> f64 {
+        match *self {
+            Node::Probabilistic(ref p) => p.p_parent_win_sample(r),
+            _ => self.p_parent_win(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -188,6 +197,14 @@ impl Probabilistic {
         (self.nplay - self.nwin) as f64 / self.nplay as f64
     }
 
+    fn p_parent_win_sample<R: Rng>(&self, r: &mut R) -> f64 {
+        let alpha = (self.nplay - self.nwin) as f64;
+        let beta = self.nplay as f64;
+        let a = Gamma::new(alpha, 1.0).ind_sample(r);
+        let b = Gamma::new(beta, 1.0).ind_sample(r);
+        a / (a + b)
+    }
+
     fn explore<R: Rng>(&mut self, rng: &mut R, mut b: Board, prior: usize)
                        -> Result<isize, Node> {
         let mut closs = None;
@@ -195,7 +212,6 @@ impl Probabilistic {
         let mut cwin = None;
         let mut ndraw = 0;
         let mut cdraw = None;
-        let mut total = 0.0f64;
         for (i, node) in self.children.iter().enumerate() {
             match *node {
                 Node::CertainLoss(ref c1) => {
@@ -218,21 +234,17 @@ impl Probabilistic {
                         Some(ref mut c) => *c = cmp::max(*c, c1.parent(i)),
                     }
                 },
-                _ => total += node.p_parent_win(),
+                _ => (),
             }
         }
         let n = self.children.len();
         if let Some(c) = closs { return Err(Node::CertainWin(c)); }
         if let Some(c) = cwin { if n == nwin { return Err(Node::CertainLoss(c)); } }
         if let Some(c) = cdraw { if n == nwin + ndraw { return Err(Node::CertainDraw(c)); } }
-        let target = rng.next_f64();
         let (_, node, m) = self.children.iter_mut().zip(b.legal_moves_iter()).
-            scan(0.0, |p, (node, m)| {
-                *p += node.p_parent_win() / total;
-                Some((*p, node, m))
-            }).find(|&(p, _, _)| {
-                p > target
-            }).unwrap();
+            map(|(node, m)| (node.p_parent_win_sample(rng), node, m)).
+            max_by(|&(p1, _, _), &(p2, _, _)| p1.partial_cmp(&p2).unwrap()).
+            unwrap();
         b.make_legal_move(m);
         let score = -node.explore(rng, b, prior);
         self.nwin += if score > 0 { 1 } else { 0 };

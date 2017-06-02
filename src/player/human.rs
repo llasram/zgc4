@@ -6,9 +6,9 @@ use player::Player;
 pub struct HumanPlayer;
 
 impl HumanPlayer {
-    fn get_side() -> Side {
+    fn get_side(_: &Board) -> Side {
         loop {
-            print!("Side? ");
+            print!("Side {{n,e,s,w}}? ");
             io::stdout().flush().unwrap();
             let mut buffer = String::new();
             io::stdin().read_line(&mut buffer).unwrap();
@@ -22,9 +22,9 @@ impl HumanPlayer {
         }
     }
 
-    fn get_pos() -> usize {
+    fn get_pos(b: &Board) -> usize {
         loop {
-            print!("Position? ");
+            print!("Position [0-{}]? ", b.size() - 1);
             io::stdout().flush().unwrap();
             let mut buffer = String::new();
             io::stdin().read_line(&mut buffer).unwrap();
@@ -39,8 +39,8 @@ impl HumanPlayer {
 impl Player for HumanPlayer {
     fn choose(&self, b: &Board) -> LegalMove {
         loop {
-            let side = HumanPlayer::get_side();
-            let pos = HumanPlayer::get_pos();
+            let side = HumanPlayer::get_side(b);
+            let pos = HumanPlayer::get_pos(b);
             match Move::new(side, pos).annotated(b) {
                 Some(m) => return m,
                 None => println!("Illegal move!"),

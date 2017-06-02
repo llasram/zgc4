@@ -122,6 +122,8 @@ impl Board {
         b
     }
 
+    pub fn size(&self) -> usize { self.size }
+
     pub fn active(&self) -> Entry { self.active }
 
     fn pos_for(&self, index: usize) -> (usize, usize) {

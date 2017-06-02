@@ -1,4 +1,3 @@
-use std::cmp;
 use std::iter;
 use std::time::{Duration, Instant};
 
@@ -42,26 +41,27 @@ impl Player for MCTSPlayer {
 #[derive(Clone, Debug, PartialEq)]
 enum Node {
     Unvisited,
+    Probabilistic(Probabilistic),
     CertainLoss(Certain),
     CertainWin(Certain),
     CertainDraw(Certain),
-    Probabilistic(Probabilistic),
 }
 
 impl Node {
     pub fn is_certain(&self) -> bool {
         match *self {
             Node::Unvisited => false,
+            Node::Probabilistic(..) => false,
             Node::CertainLoss(..) => true,
             Node::CertainWin(..) => true,
             Node::CertainDraw(..) => true,
-            Node::Probabilistic(..) => false,
         }
     }
 
     pub fn best_move(&self, b: &Board) -> LegalMove {
         match *self {
             Node::Unvisited => panic!("node is unvisited"),
+            Node::Probabilistic(ref p) => p.best_move(b),
             Node::CertainLoss(ref c) => {
                 println!("Certain loss in {} move(s)", c.depth);
                 c.best_move(b)
@@ -71,7 +71,6 @@ impl Node {
                 c.best_move(b)
             },
             Node::CertainDraw(ref c) => c.best_move(b),
-            Node::Probabilistic(ref p) => p.best_move(b),
         }
     }
 
@@ -93,10 +92,10 @@ impl Node {
     fn score(&self) -> f64 {
         match *self {
             Node::Unvisited => panic!("node is unvisited"),
+            Node::Probabilistic(ref p) => p.score(),
             Node::CertainLoss(..) => 1.0,
             Node::CertainWin(..) => 0.0,
             Node::CertainDraw(..) => 0.5,
-            Node::Probabilistic(ref p) => p.score(),
         }
     }
 
@@ -143,10 +142,10 @@ impl Node {
     fn p_parent_win(&self) -> f64 {
         match *self {
             Node::Unvisited => 0.5,
+            Node::Probabilistic(ref p) => p.p_parent_win(),
             Node::CertainLoss(..) => 1.0,
             Node::CertainWin(..) => 0.0,
             Node::CertainDraw(..) => 0.5,
-            Node::Probabilistic(ref p) => p.p_parent_win(),
         }
     }
 
@@ -156,6 +155,33 @@ impl Node {
             Node::Probabilistic(ref p) => p.p_parent_win_sample(rng),
             _ => self.p_parent_win(),
         }
+    }
+
+    fn rank_ordinal(&self) -> usize {
+        match *self {
+            Node::Unvisited => 2,
+            Node::Probabilistic(..) => 2,
+            Node::CertainLoss(..) => 3,
+            Node::CertainWin(..) => 0,
+            Node::CertainDraw(..) => 1,
+        }
+    }
+
+    fn rank_discriminator(&self) -> isize {
+        match *self {
+            Node::Unvisited => 0,
+            Node::Probabilistic(..) => 0,
+            Node::CertainLoss(ref c) => -(c.depth as isize),
+            Node::CertainWin(ref c) => c.depth as isize,
+            Node::CertainDraw(ref c) => c.depth as isize,
+        }
+    }
+
+    fn rank_key<R: Rng>(&self, rng: &mut R) -> (usize, f64, isize) {
+        let o = self.rank_ordinal();
+        let p = self.p_parent_win_sample(rng);
+        let d = self.rank_discriminator();
+        (o, p, d)
     }
 }
 
@@ -210,51 +236,25 @@ impl Probabilistic {
         beta_sample(rng, self.score, self.nplay - self.score)
     }
 
-    fn explore<R: Rng>(&mut self, rng: &mut R, mut b: Board)
-                       -> Result<f64, Node> {
-        let mut closs = None;
-        let mut nwin = 0;
-        let mut cwin = None;
-        let mut ndraw = 0;
-        let mut cdraw = None;
-        for (i, node) in self.children.iter().enumerate() {
-            match *node {
-                Node::CertainLoss(ref c1) => {
-                    match closs {
-                        None => closs = Some(c1.parent(i)),
-                        Some(ref mut c) => *c = cmp::min(*c, c1.parent(i)),
-                    }
-                },
-                Node::CertainWin(ref c1) => {
-                    nwin += 1;
-                    match cwin {
-                        None => cwin = Some(c1.parent(i)),
-                        Some(ref mut c) => *c = cmp::max(*c, c1.parent(i)),
-                    }
-                },
-                Node::CertainDraw(ref c1) => {
-                    ndraw += 1;
-                    match cdraw {
-                        None => cdraw = Some(c1.parent(i)),
-                        Some(ref mut c) => *c = cmp::max(*c, c1.parent(i)),
-                    }
-                },
-                _ => (),
+    fn explore<R: Rng>(&mut self, rng: &mut R, mut b: Board) -> Result<f64, Node> {
+        let (_, i, node) = self.children.iter_mut().enumerate().map(|(i, node)| {
+            (node.rank_key(rng), i, node)
+        }).max_by(|&(k1, _, _), &(k2, _, _)| {
+            k1.partial_cmp(&k2).unwrap()
+        }).unwrap();
+        match *node {
+            Node::CertainLoss(ref c) => Err(Node::CertainWin(c.parent(i))),
+            Node::CertainWin(ref c) => Err(Node::CertainLoss(c.parent(i))),
+            Node::CertainDraw(ref c) => Err(Node::CertainDraw(c.parent(i))),
+            _ => {
+                let m = b.legal_moves_iter().nth(i).unwrap();
+                b.make_legal_move(m);
+                let score = 1.0 - node.explore(rng, b);
+                self.score += score;
+                self.nplay += 1.0;
+                Ok(score)
             }
         }
-        let n = self.children.len();
-        if let Some(c) = closs { return Err(Node::CertainWin(c)); }
-        if let Some(c) = cwin { if n == nwin { return Err(Node::CertainLoss(c)); } }
-        if let Some(c) = cdraw { if n == nwin + ndraw { return Err(Node::CertainDraw(c)); } }
-        let (_, node, m) = self.children.iter_mut().zip(b.legal_moves_iter()).
-            map(|(node, m)| (node.p_parent_win_sample(rng), node, m)).
-            max_by(|&(p1, _, _), &(p2, _, _)| p1.partial_cmp(&p2).unwrap()).
-            unwrap();
-        b.make_legal_move(m);
-        let score = 1.0 - node.explore(rng, b);
-        self.score += score;
-        self.nplay += 1.0;
-        Ok(score)
     }
 
     fn score(&self) -> f64 {

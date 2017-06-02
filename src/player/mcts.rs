@@ -39,7 +39,7 @@ impl Player for MCTSPlayer {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 enum Node {
     Unvisited,
     CertainLoss(Certain),
@@ -150,9 +150,10 @@ impl Node {
         }
     }
 
-    fn p_parent_win_sample<R: Rng>(&self, r: &mut R) -> f64 {
+    fn p_parent_win_sample<R: Rng>(&self, rng: &mut R) -> f64 {
         match *self {
-            Node::Probabilistic(ref p) => p.p_parent_win_sample(r),
+            Node::Unvisited => beta_sample(rng, PRIOR, PRIOR),
+            Node::Probabilistic(ref p) => p.p_parent_win_sample(rng),
             _ => self.p_parent_win(),
         }
     }
@@ -179,7 +180,7 @@ impl Certain {
 }
 
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 struct Probabilistic {
     score: f64,
     nplay: f64,
@@ -202,14 +203,11 @@ impl Probabilistic {
     }
 
     fn p_parent_win(&self) -> f64 {
-        self.score / self.nplay as f64
+        self.score / self.nplay
     }
 
-    fn p_parent_win_sample<R: Rng>(&self, r: &mut R) -> f64 {
-        // Sample from Beta distribution via Gamma samples
-        let a = Gamma::new(self.score, 1.0).ind_sample(r);
-        let b = Gamma::new(self.nplay as f64, 1.0).ind_sample(r);
-        a / (a + b)
+    fn p_parent_win_sample<R: Rng>(&self, rng: &mut R) -> f64 {
+        beta_sample(rng, self.score, self.nplay - self.score)
     }
 
     fn explore<R: Rng>(&mut self, rng: &mut R, mut b: Board)
@@ -261,5 +259,30 @@ impl Probabilistic {
 
     fn score(&self) -> f64 {
         self.score - PRIOR as f64
+    }
+}
+
+fn beta_sample<R: Rng>(rng: &mut R, alpha: f64, beta: f64) -> f64 {
+    if alpha <= 1.0 && beta <= 1.0 {
+        loop {
+            let u = rng.next_f64();
+            let v = rng.next_f64();
+            let x = u.powf(1.0 / alpha);
+            let y = v.powf(1.0 / beta);
+
+            if x + y > 1.0 { continue; }
+            if x + y > 0.0 { return x / (x + y); }
+
+            let ln_x = u.ln() / alpha;
+            let ln_y = v.ln() / beta;
+            let ln_m = if ln_x > ln_y { ln_x } else { ln_y };
+            let ln_x = ln_x - ln_m;
+            let ln_y = ln_y - ln_m;
+            return (ln_x - (ln_x.exp() + ln_y.exp()).ln()).exp();
+        }
+    } else {
+        let a = Gamma::new(alpha, 1.0).ind_sample(rng);
+        let b = Gamma::new(beta, 1.0).ind_sample(rng);
+        a / (a + b)
     }
 }

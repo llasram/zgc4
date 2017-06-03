@@ -77,7 +77,10 @@ impl Node {
                 println!("Certain win in {} move(s)", c.depth);
                 c.best_move(b)
             },
-            Node::CertainDraw(ref c) => c.best_move(b),
+            Node::CertainDraw(ref c) => {
+                println!("Certain draw in {} move(s)", c.depth);
+                c.best_move(b)
+            },
         }
     }
 

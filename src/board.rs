@@ -46,10 +46,10 @@ pub enum Entry {
 impl fmt::Display for Entry {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Entry::Empty => write!(f, "  "),
-            Entry::Block => write!(f, "█▋"),
-            Entry::Player1 => write!(f, "●1"),
-            Entry::Player2 => write!(f, "○2"),
+            Entry::Empty => write!(f, "·"),
+            Entry::Block => write!(f, "▓"),
+            Entry::Player1 => write!(f, "●"),
+            Entry::Player2 => write!(f, "○"),
         }
     }
 }
@@ -241,12 +241,12 @@ impl Board {
 
 impl fmt::Display for Board {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "   ")?;
+        write!(f, "  ")?;
         for i in 0..self.size { write!(f, "{: >2}", i)?; }
         write!(f, "\n")?;
         for (i, entries) in self.data.iter().chunks(self.size).into_iter().enumerate() {
-            write!(f, "{: >2} ", i)?;
-            for e in entries { write!(f, "{}", e)?; }
+            write!(f, "{: >2}", i)?;
+            for e in entries { write!(f, " {}", e)?; }
             write!(f, "\n")?;
         }
         Ok(())

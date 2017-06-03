@@ -38,6 +38,13 @@ impl Player for MCTSPlayer {
     }
 }
 
+#[derive(Clone, Debug)]
+enum Finding {
+    Score(f64),
+    Replace(Node),
+    Both(Node, f64),
+}
+
 #[derive(Clone, Debug, PartialEq)]
 enum Node {
     Unvisited,
@@ -78,36 +85,34 @@ impl Node {
         let result = match *self {
             Node::Unvisited => self.explore_unvisted(rng, b),
             Node::Probabilistic(ref mut p) => p.explore(rng, b),
-            _ => Ok(self.score()),
+            _ => Finding::Score(self.score()),
         };
         match result {
-            Ok(score) => score,
-            Err(node) => {
-                *self = node;
-                self.score()
-            },
+            Finding::Score(score) => score,
+            Finding::Replace(node) => { *self = node; self.score() },
+            Finding::Both(node, score) => { *self = node; score }
         }
     }
 
     fn score(&self) -> f64 {
         match *self {
             Node::Unvisited => panic!("node is unvisited"),
-            Node::Probabilistic(ref p) => p.score(),
+            Node::Probabilistic(..) => panic!("node is probabilistic"),
             Node::CertainLoss(..) => 1.0,
             Node::CertainWin(..) => 0.0,
             Node::CertainDraw(..) => 0.5,
         }
     }
 
-    fn explore_unvisted<R: Rng>(&mut self, rng: &mut R, mut b: Board)
-                                -> Result<f64, Node> {
+    fn explore_unvisted<R: Rng>(&mut self, rng: &mut R, mut b: Board) -> Finding {
         let (n, i, m) = Node::choose_unvisited_first(rng, &b);
         match b.make_legal_move(m) {
-            GameState::Won => Err(Node::CertainWin(Certain::new(1, i))),
-            GameState::Drawn => Err(Node::CertainDraw(Certain::new(1, i))),
+            GameState::Won => Finding::Replace(Node::CertainWin(Certain::new(1, i))),
+            GameState::Drawn => Finding::Replace(Node::CertainDraw(Certain::new(1, i))),
             GameState::Ongoing => {
                 let score = Node::choose_unvisited_rest(rng, b);
-                Err(Node::Probabilistic(Probabilistic::new(n, score)))
+                let node = Node::Probabilistic(Probabilistic::new(n, score));
+                Finding::Both(node, score)
             }
         }
     }
@@ -139,21 +144,21 @@ impl Node {
         }
     }
 
-    fn p_parent_win(&self) -> f64 {
+    fn expected_score(&self) -> f64 {
         match *self {
             Node::Unvisited => 0.5,
-            Node::Probabilistic(ref p) => p.p_parent_win(),
+            Node::Probabilistic(ref p) => p.expected_score(),
             Node::CertainLoss(..) => 1.0,
             Node::CertainWin(..) => 0.0,
             Node::CertainDraw(..) => 0.5,
         }
     }
 
-    fn p_parent_win_sample<R: Rng>(&self, rng: &mut R) -> f64 {
+    fn expected_score_sample<R: Rng>(&self, rng: &mut R) -> f64 {
         match *self {
             Node::Unvisited => beta_sample(rng, PRIOR, PRIOR),
-            Node::Probabilistic(ref p) => p.p_parent_win_sample(rng),
-            _ => self.p_parent_win(),
+            Node::Probabilistic(ref p) => p.expected_score_sample(rng),
+            _ => self.expected_score(),
         }
     }
 
@@ -179,7 +184,7 @@ impl Node {
 
     fn rank_key<R: Rng>(&self, rng: &mut R) -> (usize, f64, isize) {
         let o = self.rank_ordinal();
-        let p = self.p_parent_win_sample(rng);
+        let p = self.expected_score_sample(rng);
         let d = self.rank_discriminator();
         (o, p, d)
     }
@@ -224,41 +229,37 @@ impl Probabilistic {
 
     fn best_move(&self, b: &Board) -> LegalMove {
         self.children.iter().zip(b.legal_moves_iter()).max_by(|&(n1, _), &(n2, _)| {
-            n1.p_parent_win().partial_cmp(&n2.p_parent_win()).unwrap()
+            n1.expected_score().partial_cmp(&n2.expected_score()).unwrap()
         }).map(|(_, m)| m).unwrap()
     }
 
-    fn p_parent_win(&self) -> f64 {
+    fn expected_score(&self) -> f64 {
         self.score / self.nplay
     }
 
-    fn p_parent_win_sample<R: Rng>(&self, rng: &mut R) -> f64 {
+    fn expected_score_sample<R: Rng>(&self, rng: &mut R) -> f64 {
         beta_sample(rng, self.score, self.nplay - self.score)
     }
 
-    fn explore<R: Rng>(&mut self, rng: &mut R, mut b: Board) -> Result<f64, Node> {
+    fn explore<R: Rng>(&mut self, rng: &mut R, mut b: Board) -> Finding {
         let (_, i, node) = self.children.iter_mut().enumerate().map(|(i, node)| {
             (node.rank_key(rng), i, node)
         }).max_by(|&(k1, _, _), &(k2, _, _)| {
             k1.partial_cmp(&k2).unwrap()
         }).unwrap();
         match *node {
-            Node::CertainLoss(ref c) => Err(Node::CertainWin(c.parent(i))),
-            Node::CertainWin(ref c) => Err(Node::CertainLoss(c.parent(i))),
-            Node::CertainDraw(ref c) => Err(Node::CertainDraw(c.parent(i))),
+            Node::CertainLoss(ref c) => Finding::Replace(Node::CertainWin(c.parent(i))),
+            Node::CertainWin(ref c) => Finding::Replace(Node::CertainLoss(c.parent(i))),
+            Node::CertainDraw(ref c) => Finding::Replace(Node::CertainDraw(c.parent(i))),
             _ => {
                 let m = b.legal_moves_iter().nth(i).unwrap();
                 b.make_legal_move(m);
                 let score = 1.0 - node.explore(rng, b);
                 self.score += score;
                 self.nplay += 1.0;
-                Ok(score)
+                Finding::Score(score)
             }
         }
-    }
-
-    fn score(&self) -> f64 {
-        self.score - PRIOR as f64
     }
 }
 

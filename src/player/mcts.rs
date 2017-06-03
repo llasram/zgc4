@@ -162,16 +162,6 @@ impl Node {
         }
     }
 
-    fn rank_ordinal(&self) -> usize {
-        match *self {
-            Node::Unvisited => 2,
-            Node::Probabilistic(..) => 2,
-            Node::CertainLoss(..) => 3,
-            Node::CertainWin(..) => 0,
-            Node::CertainDraw(..) => 1,
-        }
-    }
-
     fn rank_discriminator(&self) -> isize {
         match *self {
             Node::Unvisited => 0,
@@ -182,11 +172,10 @@ impl Node {
         }
     }
 
-    fn rank_key<R: Rng>(&self, rng: &mut R) -> (usize, f64, isize) {
-        let o = self.rank_ordinal();
+    fn rank_key<R: Rng>(&self, rng: &mut R) -> (f64, isize) {
         let p = self.expected_score_sample(rng);
         let d = self.rank_discriminator();
-        (o, p, d)
+        (p, d)
     }
 }
 
@@ -242,15 +231,20 @@ impl Probabilistic {
     }
 
     fn explore<R: Rng>(&mut self, rng: &mut R, mut b: Board) -> Finding {
+        let nall = self.children.len();
+        let mut nbad = 0;
         let (_, i, node) = self.children.iter_mut().enumerate().map(|(i, node)| {
+            match *node { Node::CertainWin(..) | Node::CertainDraw(..) => nbad += 1, _ => () };
             (node.rank_key(rng), i, node)
         }).max_by(|&(k1, _, _), &(k2, _, _)| {
             k1.partial_cmp(&k2).unwrap()
         }).unwrap();
         match *node {
             Node::CertainLoss(ref c) => Finding::Replace(Node::CertainWin(c.parent(i))),
-            Node::CertainWin(ref c) => Finding::Replace(Node::CertainLoss(c.parent(i))),
-            Node::CertainDraw(ref c) => Finding::Replace(Node::CertainDraw(c.parent(i))),
+            Node::CertainWin(ref c) if nbad == nall =>
+                Finding::Replace(Node::CertainLoss(c.parent(i))),
+            Node::CertainDraw(ref c) if nbad == nall =>
+                Finding::Replace(Node::CertainDraw(c.parent(i))),
             _ => {
                 let m = b.legal_moves_iter().nth(i).unwrap();
                 b.make_legal_move(m);
@@ -258,7 +252,7 @@ impl Probabilistic {
                 self.score += score;
                 self.nplay += 1.0;
                 Finding::Score(score)
-            }
+            },
         }
     }
 }

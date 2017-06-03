@@ -26,11 +26,9 @@ impl Player for MCTSPlayer {
         let now = Instant::now();
         let mut rng = rand::thread_rng();
         let mut node = Node::Unvisited;
-        for i in 0.. {
+        loop {
             node.explore(&mut rng, b.clone());
-            if node.is_certain() { break; }
-            if now.elapsed() >= self.dur {
-                println!("Choosing move after {} play-throughs", i);
+            if node.is_certain() || now.elapsed() >= self.dur {
                 break;
             }
         }
@@ -220,9 +218,11 @@ impl Probabilistic {
     }
 
     fn best_move(&self, b: &Board) -> LegalMove {
-        self.children.iter().zip(b.legal_moves_iter()).max_by(|&(n1, _), &(n2, _)| {
-            n1.expected_score().partial_cmp(&n2.expected_score()).unwrap()
-        }).map(|(_, m)| m).unwrap()
+        let (p, m) = self.children.iter().map(Node::expected_score).zip(b.legal_moves_iter()).
+            max_by(|&(p1, _), &(p2, _)| p1.partial_cmp(&p2).unwrap()).unwrap();
+        let n = self.nplay as usize;
+        println!("Choosing move with E[S] = {:.2} after {} playthroughs", p, n);
+        m
     }
 
     fn expected_score(&self) -> f64 {
